@@ -1,0 +1,62 @@
+title: DCSync Domain Replication via Non-Domain-Controller
+id: c2f8a4b6-9d3e-4710-b8a5-1e7f3c5d9821
+status: experimental
+description: |
+  Detects DCSync attacks where an account requests directory replication
+  data — including password hashes for any domain principal — from a domain
+  controller while not being a domain controller itself. Adversaries with
+  Replicating Directory Changes / Replicating Directory Changes All rights
+  abuse the MS-DRSR protocol to extract credentials without dropping tools
+  on a DC. This rule fires on Windows Security Event 4662 (Directory
+  Service Access) when one of the replication-related extended rights GUIDs
+  is requested. The GUIDs are well-known and unchanging:
+    1131f6aa-9c07-11d1-f79f-00c04fc2dcd2 — DS-Replication-Get-Changes
+    1131f6ad-9c07-11d1-f79f-00c04fc2dcd2 — DS-Replication-Get-Changes-All
+    89e95b76-444d-4c62-991a-0facbeda640c — DS-Replication-Get-Changes-In-Filtered-Set
+  Genuine domain controller replication will trigger these events legitimately,
+  so a filter excludes computer accounts (SubjectUserName ending in $) which
+  represent DCs replicating with each other. Any human user or service account
+  triggering this is highly suspicious and should be treated as credential
+  access in progress.
+references:
+  - https://attack.mitre.org/techniques/T1003/006/
+  - https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1003.006/T1003.006.md
+  - https://adsecurity.org/?p=1729
+  - https://www.thehacker.recipes/ad/movement/credentials/dumping/dcsync
+  - https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-drsr/f977faaa-673e-4f66-b9bf-48c640241d47
+author: Samim Hakimi
+date: 2026/04/25
+modified: 2026/04/25
+tags:
+  - attack.credential_access
+  - attack.t1003.006
+logsource:
+  product: windows
+  service: security
+detection:
+  selection_event:
+    EventID: 4662
+    ObjectServer: 'DS'
+  selection_replication_rights:
+    Properties|contains:
+      - '1131f6aa-9c07-11d1-f79f-00c04fc2dcd2'
+      - '1131f6ad-9c07-11d1-f79f-00c04fc2dcd2'
+      - '89e95b76-444d-4c62-991a-0facbeda640c'
+  filter_dc_computer_accounts:
+    SubjectUserName|endswith: '$'
+  filter_system:
+    SubjectUserName:
+      - 'NT AUTHORITY\SYSTEM'
+      - 'ANONYMOUS LOGON'
+  condition: selection_event and selection_replication_rights and not (filter_dc_computer_accounts or filter_system)
+fields:
+  - SubjectUserName
+  - SubjectDomainName
+  - ObjectName
+  - Properties
+  - ComputerName
+falsepositives:
+  - Azure AD Connect / Entra Connect service accounts performing directory sync (must be allowlisted by SubjectUserName)
+  - Backup or DR replication tools with explicit replication rights (allowlist by service account)
+  - Legitimate Domain Admin troubleshooting using repadmin /showchanges (rare; should be ticketed)
+level: critical

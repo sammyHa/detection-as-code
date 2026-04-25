@@ -20,3 +20,45 @@
       platform: windows
       elevation: admin
       expected_alert: "LSASS Memory Dump via Procdump"
+
+- detection_id: 4d7e9c1a-2f83-4b56-a9e1-6c3d8f1b4e72
+  detection_path: detections/windows/execution/T1059.001_powershell_encoded_command.yml
+  atomics:
+    - technique: T1059.001
+      test_number: 2
+      test_name: "Run a PowerShell command from the Windows Registry"
+      platform: windows
+      elevation: user
+      expected_alert: "PowerShell Encoded Command Execution"
+    - technique: T1059.001
+      test_number: 4
+      test_name: "Obfuscation Tests"
+      platform: windows
+      elevation: user
+      expected_alert: "PowerShell Encoded Command Execution"
+
+- detection_id: c2f8a4b6-9d3e-4710-b8a5-1e7f3c5d9821
+  detection_path: detections/windows/credential_access/T1003.006_dcsync_replication.yml
+  atomics:
+    - technique: T1003.006
+      test_number: 1
+      test_name: "DCSync (Active Directory)"
+      platform: windows
+      elevation: admin
+      expected_alert: "DCSync Domain Replication"
+
+- detection_id: 9b3e7c5a-8f24-4d91-a6b3-2c5e9f1d4a86
+  detection_path: detections/windows/defense_evasion/T1218.011_rundll32_suspicious_execution.yml
+  atomics:
+    - technique: T1218.011
+      test_number: 1
+      test_name: "Rundll32 execute JavaScript Remote Payload With GetObject"
+      platform: windows
+      elevation: user
+      expected_alert: "Suspicious Rundll32 Execution"
+    - technique: T1218.011
+      test_number: 6
+      test_name: "Rundll32 with Ordinal Value"
+      platform: windows
+      elevation: user
+      expected_alert: "Suspicious Rundll32 Execution"

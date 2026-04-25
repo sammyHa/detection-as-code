@@ -53,13 +53,15 @@ def main() -> int:
     for rule_path in rule_files:
         ok, err = validate_rule(rule_path)
         status = "PASS" if ok else "FAIL"
-        rel = rule_path.relative_to(args.path.parent if args.path.parent != Path(".") else args.path)
+        base_path = args.path.parent if args.path.parent != Path(".") else args.path
+        rel = rule_path.relative_to(base_path)
         print(f"  [{status}] {rel}")
         if not ok and err is not None:
             failures.append((rule_path, err))
 
     print()
-    print(f"Validated {len(rule_files)} rule(s): {len(rule_files) - len(failures)} pass, {len(failures)} fail")
+    passed = len(rule_files) - len(failures)
+    print(f"Validated {len(rule_files)} rule(s): {passed} pass, {len(failures)} fail")
 
     if failures:
         print("\nFailures:", file=sys.stderr)
