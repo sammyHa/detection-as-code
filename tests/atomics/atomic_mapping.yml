@@ -1,0 +1,22 @@
+# Maps Sigma detections to their corresponding Atomic Red Team test(s).
+# Phase 3 CI consumes this file to detonate the right atomic for each PR.
+#
+# Format:
+#   detection_id (UUID): the Sigma rule's id field
+#   atomics:            one or more entries, each pointing at an ART test
+#     technique:        ATT&CK technique ID
+#     test_number:      1-indexed test from the technique's atomic-red-team yaml
+#     test_name:        human-readable name (must match ART)
+#     platform:         windows | linux | macos
+#     elevation:        none | user | admin
+#     expected_alert:   substring expected in the resulting Splunk/Elastic alert title
+
+- detection_id: 7a8c5e2f-3b91-4d6a-9c1e-8f4d2a5b7c93
+  detection_path: detections/windows/credential_access/T1003.001_lsass_dump_procdump.yml
+  atomics:
+    - technique: T1003.001
+      test_number: 1
+      test_name: "Dump LSASS.exe Memory using ProcDump"
+      platform: windows
+      elevation: admin
+      expected_alert: "LSASS Memory Dump via Procdump"

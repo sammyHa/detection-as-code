@@ -1,0 +1,52 @@
+title: LSASS Memory Dump via Procdump
+id: 7a8c5e2f-3b91-4d6a-9c1e-8f4d2a5b7c93
+status: experimental
+description: |
+  Detects use of the Sysinternals procdump utility to create a memory dump of
+  the LSASS process. Adversaries dump LSASS to extract credentials, including
+  plaintext passwords, hashes, and Kerberos tickets, for later use in lateral
+  movement (T1003.001). This rule covers both the standard binary name and
+  common renaming evasion by checking the OriginalFileName field from the PE
+  header.
+references:
+  - https://attack.mitre.org/techniques/T1003/001/
+  - https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1003.001/T1003.001.md
+  - https://learn.microsoft.com/en-us/sysinternals/downloads/procdump
+author: Samim Hakimi
+date: 2026/04/24
+modified: 2026/04/24
+tags:
+  - attack.credential_access
+  - attack.t1003.001
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_image:
+    Image|endswith:
+      - '\procdump.exe'
+      - '\procdump64.exe'
+  selection_original_name:
+    OriginalFileName:
+      - 'procdump'
+      - 'procdump64.exe'
+  selection_cli_lsass:
+    CommandLine|contains:
+      - 'lsass'
+  selection_cli_dump_flag:
+    CommandLine|contains:
+      - ' -ma '
+      - ' -mp '
+      - ' -mm '
+      - ' -accepteula'
+  condition: (selection_image or selection_original_name) and selection_cli_lsass and selection_cli_dump_flag
+fields:
+  - User
+  - ParentImage
+  - CommandLine
+  - ProcessId
+falsepositives:
+  - Authorized IT troubleshooting using Sysinternals tools (should be rare and identifiable by user/host context)
+  - Authorized red team or purple team engagements (should be ticketed and time-boxed)
+  - Endpoint security tools that wrap Sysinternals utilities (verify by ParentImage)
+level: high

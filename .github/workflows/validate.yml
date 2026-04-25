@@ -1,0 +1,57 @@
+name: Validate Detections
+
+on:
+  pull_request:
+    paths:
+      - 'detections/**'
+      - 'tools/**'
+      - 'tests/**'
+      - 'pyproject.toml'
+      - '.github/workflows/validate.yml'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  validate:
+    name: Lint, validate, and unit test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Validate Sigma rule syntax
+        run: python tools/validate_sigma.py detections/
+
+      - name: Run unit tests
+        run: pytest tests/unit/ -v --tb=short
+
+      - name: Lint Python tools
+        run: |
+          pip install ruff
+          ruff check tools/ tests/
+
+  summary:
+    name: Pipeline summary
+    runs-on: ubuntu-latest
+    needs: validate
+    if: always()
+    steps:
+      - name: Report
+        run: |
+          echo "### Detection-as-Code CI Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Validation: ${{ needs.validate.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
