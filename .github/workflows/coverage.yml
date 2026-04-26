@@ -1,0 +1,99 @@
+name: Coverage & Latency Dashboard
+
+# Regenerate the coverage layer, badge, REPORT, and latency SVG on every
+# merge to main. Commits the regenerated files back so they're visible
+# without requiring CI to re-run.
+#
+# Also runs nightly to refresh the latency dashboard from accumulated
+# Phase 3 report artifacts.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'detections/**'
+      - 'tools/coverage_report.py'
+      - 'tools/latency_dashboard.py'
+      - '.github/workflows/coverage.yml'
+  schedule:
+    # Daily at 09:00 UTC — refresh latency dashboard from Phase 3 artifacts
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write   # need to commit regenerated docs/coverage/
+
+concurrency:
+  group: coverage-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  generate:
+    name: Regenerate coverage artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Use a deploy key or PAT if you want this to retrigger downstream
+          # workflows; default GITHUB_TOKEN won't.
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Generate coverage layer + REPORT + badge
+        run: python tools/coverage_report.py --source detections/ --output docs/coverage/
+
+      # Pull recent Phase 3 reports from the test-detections.yml workflow.
+      # This relies on the test-detections workflow uploading 'phase3-report'
+      # artifacts. We pull the last 30 runs and aggregate.
+      - name: Download recent Phase 3 reports
+        id: download
+        continue-on-error: true   # tolerate first-run case where there are no artifacts yet
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: test-detections.yml
+          name: phase3-report
+          path: artifacts/
+          if_no_artifact_found: warn
+          search_artifacts: true
+          # Last 30 days of artifacts
+          workflow_conclusion: ''   # any conclusion
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate latency dashboard
+        # Falls back to empty-state SVG if no reports were available.
+        run: |
+          if [ -d artifacts ]; then
+            python tools/latency_dashboard.py --reports artifacts/ --output docs/coverage/latency.svg
+          else
+            mkdir -p artifacts
+            python tools/latency_dashboard.py --reports artifacts/ --output docs/coverage/latency.svg
+          fi
+
+      - name: Commit regenerated artifacts
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/coverage/coverage_layer.json docs/coverage/REPORT.md docs/coverage/badge.json docs/coverage/latency.svg
+          if git diff --cached --quiet; then
+            echo "no changes — nothing to commit"
+          else
+            git commit -m "chore(coverage): regenerate coverage artifacts [skip ci]"
+            git push
+          fi
+
+      - name: Summary
+        run: |
+          echo "## 📊 Coverage Artifacts Regenerated" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- ATT&CK Navigator layer: \`docs/coverage/coverage_layer.json\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Coverage report: \`docs/coverage/REPORT.md\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Coverage badge: \`docs/coverage/badge.json\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Latency dashboard: \`docs/coverage/latency.svg\`" >> $GITHUB_STEP_SUMMARY

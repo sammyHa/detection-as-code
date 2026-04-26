@@ -1,0 +1,64 @@
+# Maps Sigma detections to their corresponding Atomic Red Team test(s).
+# Phase 3 CI consumes this file to detonate the right atomic for each PR.
+#
+# Format:
+#   detection_id (UUID): the Sigma rule's id field
+#   atomics:            one or more entries, each pointing at an ART test
+#     technique:        ATT&CK technique ID
+#     test_number:      1-indexed test from the technique's atomic-red-team yaml
+#     test_name:        human-readable name (must match ART)
+#     platform:         windows | linux | macos
+#     elevation:        none | user | admin
+#     expected_alert:   substring expected in the resulting Splunk/Elastic alert title
+
+- detection_id: 7a8c5e2f-3b91-4d6a-9c1e-8f4d2a5b7c93
+  detection_path: detections/windows/credential_access/T1003.001_lsass_dump_procdump.yml
+  atomics:
+    - technique: T1003.001
+      test_number: 1
+      test_name: "Dump LSASS.exe Memory using ProcDump"
+      platform: windows
+      elevation: admin
+      expected_alert: "LSASS Memory Dump via Procdump"
+
+- detection_id: 4d7e9c1a-2f83-4b56-a9e1-6c3d8f1b4e72
+  detection_path: detections/windows/execution/T1059.001_powershell_encoded_command.yml
+  atomics:
+    - technique: T1059.001
+      test_number: 2
+      test_name: "Run a PowerShell command from the Windows Registry"
+      platform: windows
+      elevation: user
+      expected_alert: "PowerShell Encoded Command Execution"
+    - technique: T1059.001
+      test_number: 4
+      test_name: "Obfuscation Tests"
+      platform: windows
+      elevation: user
+      expected_alert: "PowerShell Encoded Command Execution"
+
+- detection_id: c2f8a4b6-9d3e-4710-b8a5-1e7f3c5d9821
+  detection_path: detections/windows/credential_access/T1003.006_dcsync_replication.yml
+  atomics:
+    - technique: T1003.006
+      test_number: 1
+      test_name: "DCSync (Active Directory)"
+      platform: windows
+      elevation: admin
+      expected_alert: "DCSync Domain Replication"
+
+- detection_id: 9b3e7c5a-8f24-4d91-a6b3-2c5e9f1d4a86
+  detection_path: detections/windows/defense_evasion/T1218.011_rundll32_suspicious_execution.yml
+  atomics:
+    - technique: T1218.011
+      test_number: 1
+      test_name: "Rundll32 execute JavaScript Remote Payload With GetObject"
+      platform: windows
+      elevation: user
+      expected_alert: "Suspicious Rundll32 Execution"
+    - technique: T1218.011
+      test_number: 6
+      test_name: "Rundll32 with Ordinal Value"
+      platform: windows
+      elevation: user
+      expected_alert: "Suspicious Rundll32 Execution"

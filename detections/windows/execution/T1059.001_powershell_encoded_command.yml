@@ -1,0 +1,75 @@
+title: PowerShell Encoded Command Execution
+id: 4d7e9c1a-2f83-4b56-a9e1-6c3d8f1b4e72
+status: experimental
+description: |
+  Detects PowerShell execution with the -EncodedCommand parameter (and its
+  abbreviated forms). Adversaries use base64-encoded commands to evade
+  command-line logging, bypass AV string matching, and obscure malicious
+  payloads. PowerShell accepts any unambiguous prefix of -EncodedCommand,
+  meaning -Enc, -EC, -en, and -e are all valid and frequently abused. This
+  rule covers the full range of abbreviations and pairs them with execution
+  policy bypass and window-hiding flags commonly used by adversaries. Length
+  thresholds and parent process context should be tuned per environment to
+  reduce noise from administrative scripts.
+references:
+  - https://attack.mitre.org/techniques/T1059/001/
+  - https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1059.001/T1059.001.md
+  - https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_powershell_exe
+  - https://www.mandiant.com/resources/blog/greater-visibility-through-powershell-logging
+author: Samim Hakimi
+date: 2026/04/25
+modified: 2026/04/25
+tags:
+  - attack.execution
+  - attack.t1059.001
+  - attack.defense_evasion
+  - attack.t1027
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_image:
+    Image|endswith:
+      - '\powershell.exe'
+      - '\pwsh.exe'
+      - '\powershell_ise.exe'
+  selection_original_name:
+    OriginalFileName:
+      - 'PowerShell.EXE'
+      - 'pwsh.dll'
+  selection_encoded_flag:
+    CommandLine|contains:
+      - ' -EncodedCommand '
+      - ' -EncodedComman '
+      - ' -EncodedComma '
+      - ' -EncodedComm '
+      - ' -EncodedCom '
+      - ' -EncodedCo '
+      - ' -EncodedC '
+      - ' -Encoded '
+      - ' -Encode '
+      - ' -Encod '
+      - ' -Enco '
+      - ' -Enc '
+      - ' -En '
+      - ' -EC '
+      - ' -E '
+      - '/EncodedCommand '
+      - '/Enc '
+      - '/EC '
+  filter_signed_admin_tools:
+    ParentImage|endswith:
+      - '\sccm\bin\ccmexec.exe'
+      - '\Microsoft Intune Management Extension\Microsoft.Management.Services.IntuneWindowsAgent.exe'
+  condition: (selection_image or selection_original_name) and selection_encoded_flag and not filter_signed_admin_tools
+fields:
+  - User
+  - ParentImage
+  - CommandLine
+  - ProcessId
+  - IntegrityLevel
+falsepositives:
+  - Legitimate administrative scripts wrapped by SCCM, Intune, or other endpoint management platforms (filter applied; verify ParentImage in your environment)
+  - Vendor installers using PowerShell as a wrapped scripting layer (review by ParentImage and signature)
+  - Authorized red team or purple team engagements (should be ticketed and time-boxed)
+level: high

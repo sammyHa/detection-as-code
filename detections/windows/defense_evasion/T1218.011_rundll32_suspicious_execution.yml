@@ -1,0 +1,78 @@
+title: Suspicious Rundll32 Execution Patterns
+id: 9b3e7c5a-8f24-4d91-a6b3-2c5e9f1d4a86
+status: experimental
+description: |
+  Detects abuse of rundll32.exe — a signed Microsoft binary — to execute
+  arbitrary code, JavaScript payloads, or remote DLLs. Rundll32 is a
+  classic living-off-the-land binary (LOLBin) because it is signed,
+  trusted by allowlisting solutions, and capable of loading code from
+  unusual locations. This rule covers four high-confidence abuse patterns:
+
+  1. JavaScript execution via mshtml RunHTMLApplication
+  2. URL.dll OpenURL or FileProtocolHandler loading remote content
+  3. Execution from world-writable or user-writable directories
+  4. Rundll32 spawned by Office applications (initial access pattern)
+
+  Each pattern is a separate selection so a SOC analyst can see in the alert
+  which adversary technique was matched, not just that "rundll32 did something".
+references:
+  - https://attack.mitre.org/techniques/T1218/011/
+  - https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1218.011/T1218.011.md
+  - https://lolbas-project.github.io/lolbas/Binaries/Rundll32/
+  - https://redcanary.com/threat-detection-report/techniques/rundll32/
+author: Samim Hakimi
+date: 2026/04/25
+modified: 2026/04/25
+tags:
+  - attack.defense_evasion
+  - attack.t1218.011
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_image:
+    Image|endswith:
+      - '\rundll32.exe'
+  selection_original_name:
+    OriginalFileName: 'RUNDLL32.EXE'
+  pattern_javascript_execution:
+    CommandLine|contains:
+      - 'javascript:'
+      - 'mshtml,RunHTMLApplication'
+      - 'mshtml.dll,RunHTMLApplication'
+  pattern_url_protocol_handler:
+    CommandLine|contains:
+      - 'url.dll,OpenURL'
+      - 'url.dll,FileProtocolHandler'
+      - 'shell32.dll,ShellExec_RunDLL'
+      - 'davclnt.dll,DavSetCookie'
+  pattern_writable_directory:
+    CommandLine|contains:
+      - '\AppData\Local\Temp\'
+      - '\AppData\Roaming\'
+      - '\Users\Public\'
+      - '\ProgramData\'
+      - 'C:\Windows\Temp\'
+      - '\Downloads\'
+  pattern_office_parent:
+    ParentImage|endswith:
+      - '\winword.exe'
+      - '\excel.exe'
+      - '\powerpnt.exe'
+      - '\outlook.exe'
+      - '\mspub.exe'
+      - '\visio.exe'
+  condition: |
+    (selection_image or selection_original_name) and
+    (pattern_javascript_execution or pattern_url_protocol_handler or pattern_writable_directory or pattern_office_parent)
+fields:
+  - User
+  - ParentImage
+  - CommandLine
+  - ProcessId
+  - IntegrityLevel
+falsepositives:
+  - Legacy applications that genuinely load DLLs from %TEMP% (rare; investigate parent and signature)
+  - Vendor installers writing to ProgramData and invoking rundll32 during setup (correlate with software install activity)
+  - Some printer / scanner drivers spawn rundll32 from writable paths during configuration
+level: high

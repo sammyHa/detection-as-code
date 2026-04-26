@@ -1,0 +1,121 @@
+{
+  "name": "DaC Coverage",
+  "versions": {
+    "attack": "14",
+    "navigator": "5.0.0",
+    "layer": "4.5"
+  },
+  "domain": "enterprise-attack",
+  "description": "Auto-generated detection coverage layer from github.com/sammyHa/detection-as-code. Score reflects rule maturity (stable=100, test=60, experimental=30); multiple rules covering the same technique add additively to a cap of 100.",
+  "filters": {
+    "platforms": [
+      "Windows",
+      "Linux",
+      "macOS"
+    ]
+  },
+  "sorting": 0,
+  "layout": {
+    "layout": "side",
+    "showName": true,
+    "showID": false
+  },
+  "hideDisabled": false,
+  "techniques": [
+    {
+      "techniqueID": "T1003.001",
+      "score": 30,
+      "color": "",
+      "comment": "1 rule(s):\n- LSASS Memory Dump via Procdump",
+      "enabled": true,
+      "metadata": [
+        {
+          "name": "rule_count",
+          "value": "1"
+        }
+      ],
+      "showSubtechniques": true
+    },
+    {
+      "techniqueID": "T1003.006",
+      "score": 30,
+      "color": "",
+      "comment": "1 rule(s):\n- DCSync Domain Replication via Non-Domain-Controller",
+      "enabled": true,
+      "metadata": [
+        {
+          "name": "rule_count",
+          "value": "1"
+        }
+      ],
+      "showSubtechniques": true
+    },
+    {
+      "techniqueID": "T1027",
+      "score": 30,
+      "color": "",
+      "comment": "1 rule(s):\n- PowerShell Encoded Command Execution",
+      "enabled": true,
+      "metadata": [
+        {
+          "name": "rule_count",
+          "value": "1"
+        }
+      ],
+      "showSubtechniques": true
+    },
+    {
+      "techniqueID": "T1059.001",
+      "score": 30,
+      "color": "",
+      "comment": "1 rule(s):\n- PowerShell Encoded Command Execution",
+      "enabled": true,
+      "metadata": [
+        {
+          "name": "rule_count",
+          "value": "1"
+        }
+      ],
+      "showSubtechniques": true
+    },
+    {
+      "techniqueID": "T1218.011",
+      "score": 30,
+      "color": "",
+      "comment": "1 rule(s):\n- Suspicious Rundll32 Execution Patterns",
+      "enabled": true,
+      "metadata": [
+        {
+          "name": "rule_count",
+          "value": "1"
+        }
+      ],
+      "showSubtechniques": true
+    }
+  ],
+  "gradient": {
+    "colors": [
+      "#ffe5e5",
+      "#ffd966",
+      "#6aa84f"
+    ],
+    "minValue": 0,
+    "maxValue": 100
+  },
+  "legendItems": [
+    {
+      "label": "Stable",
+      "color": "#6aa84f"
+    },
+    {
+      "label": "Test",
+      "color": "#ffd966"
+    },
+    {
+      "label": "Experimental",
+      "color": "#ffe5e5"
+    }
+  ],
+  "showTacticRowBackground": false,
+  "selectTechniquesAcrossTactics": true
+}
