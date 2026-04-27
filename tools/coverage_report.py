@@ -8,7 +8,8 @@ Outputs three things on every run:
      https://mitre-attack.github.io/attack-navigator/ to see a heatmap.
 
   2. docs/coverage/REPORT.md
-     Human-readable summary: total rules, by tactic, by status, technique list.
+     Human-readable summary: total rules, by tactic, by status, technique
+     list, and a separate retired-rules audit section.
 
   3. docs/coverage/badge.json
      Shields.io endpoint format. Lets the README badge stay in sync with
@@ -18,9 +19,12 @@ Scoring model:
   - 'stable'       → 100 (battle-tested, 30+ days FP review)
   - 'test'         →  60 (under FP review)
   - 'experimental' →  30 (newly written)
-  - 'deprecated'   →   0 (excluded from coverage)
+  - 'deprecated'   →   0 (excluded from coverage scoring; reported separately)
 
 Multiple rules covering the same technique add additively but cap at 100.
+
+Retired rules (under detections/retired/) are excluded from the coverage
+layer and badge but listed in REPORT.md for audit-trail purposes.
 """
 
 from __future__ import annotations
@@ -44,7 +48,6 @@ STATUS_SCORES = {
     "unsupported": 0,
 }
 
-# Color stops for the Navigator layer — green-yellow-red gradient
 NAVIGATOR_GRADIENT = {
     "colors": ["#ffe5e5", "#ffd966", "#6aa84f"],
     "minValue": 0,
@@ -61,8 +64,11 @@ class ParsedRule:
     title: str
     status: str
     level: str
-    techniques: list[str]  # ['T1003.001', 'T1059.001', ...]
-    tactics: list[str]     # ['credential_access', 'execution', ...]
+    techniques: list[str]
+    tactics: list[str]
+    retired: bool = False
+    retired_at: str = ""
+    retirement_reason: str = ""
 
 
 @dataclass
@@ -73,12 +79,18 @@ class CoverageEntry:
     rule_titles: list[str] = field(default_factory=list)
 
 
-def find_rule_files(root: Path) -> list[Path]:
-    return sorted(p for p in root.rglob("*.y*ml") if p.is_file())
+def find_rule_files(root: Path, *, include_retired: bool = False) -> list[Path]:
+    out = []
+    for p in root.rglob("*.y*ml"):
+        if not p.is_file():
+            continue
+        if "retired" in p.parts and not include_retired:
+            continue
+        out.append(p)
+    return sorted(out)
 
 
 def extract_techniques(tags: Iterable[str]) -> list[str]:
-    """Pull technique IDs (e.g. 'T1003.001') out of attack.* tags."""
     out = []
     for tag in tags or []:
         m = TECHNIQUE_TAG_RE.match(str(tag))
@@ -90,14 +102,12 @@ def extract_techniques(tags: Iterable[str]) -> list[str]:
 
 
 def extract_tactics(tags: Iterable[str]) -> list[str]:
-    """Pull tactic names from attack.* tags (e.g. 'attack.credential_access')."""
     out = []
     for tag in tags or []:
         s = str(tag).lower()
         if not s.startswith("attack."):
             continue
         rest = s[len("attack."):]
-        # Skip technique tags — those are the t#### form
         if rest.startswith("t") and rest[1:2].isdigit():
             continue
         out.append(rest)
@@ -111,6 +121,7 @@ def parse_rule(path: Path) -> ParsedRule | None:
         return None
     if not isinstance(data, dict):
         return None
+    is_retired = "retired" in path.parts
     return ParsedRule(
         path=path,
         rule_id=str(data.get("id", "")),
@@ -119,13 +130,18 @@ def parse_rule(path: Path) -> ParsedRule | None:
         level=str(data.get("level", "medium")).lower(),
         techniques=extract_techniques(data.get("tags") or []),
         tactics=extract_tactics(data.get("tags") or []),
+        retired=is_retired,
+        retired_at=str(data.get("retired_at", "")),
+        retirement_reason=str(data.get("retirement_reason", "")),
     )
 
 
 def score_rules(rules: list[ParsedRule]) -> dict[str, CoverageEntry]:
-    """Aggregate per-technique coverage. Score caps at 100 per technique."""
+    """Score only non-retired, non-deprecated rules."""
     by_tech: dict[str, CoverageEntry] = {}
     for rule in rules:
+        if rule.retired:
+            continue
         if rule.status in ("deprecated", "unsupported"):
             continue
         rule_score = STATUS_SCORES.get(rule.status, 30)
@@ -138,10 +154,6 @@ def score_rules(rules: list[ParsedRule]) -> dict[str, CoverageEntry]:
             entry.rule_titles.append(rule.title)
     return by_tech
 
-
-# --------------------------------------------------------------------------
-# Navigator layer
-# --------------------------------------------------------------------------
 
 def render_navigator_layer(coverage: dict[str, CoverageEntry], *, name: str = "DaC Coverage") -> dict:
     techniques = []
@@ -156,23 +168,17 @@ def render_navigator_layer(coverage: dict[str, CoverageEntry], *, name: str = "D
             {
                 "techniqueID": tech_id,
                 "score": entry.score,
-                "color": "",  # let the gradient drive color
+                "color": "",
                 "comment": comment,
                 "enabled": True,
-                "metadata": [
-                    {"name": "rule_count", "value": str(entry.rule_count)},
-                ],
+                "metadata": [{"name": "rule_count", "value": str(entry.rule_count)}],
                 "showSubtechniques": True,
             }
         )
 
     return {
         "name": name,
-        "versions": {
-            "attack": "14",
-            "navigator": "5.0.0",
-            "layer": "4.5",
-        },
+        "versions": {"attack": "14", "navigator": "5.0.0", "layer": "4.5"},
         "domain": "enterprise-attack",
         "description": (
             "Auto-generated detection coverage layer from "
@@ -182,11 +188,7 @@ def render_navigator_layer(coverage: dict[str, CoverageEntry], *, name: str = "D
         ),
         "filters": {"platforms": ["Windows", "Linux", "macOS"]},
         "sorting": 0,
-        "layout": {
-            "layout": "side",
-            "showName": True,
-            "showID": False,
-        },
+        "layout": {"layout": "side", "showName": True, "showID": False},
         "hideDisabled": False,
         "techniques": techniques,
         "gradient": NAVIGATOR_GRADIENT,
@@ -200,15 +202,14 @@ def render_navigator_layer(coverage: dict[str, CoverageEntry], *, name: str = "D
     }
 
 
-# --------------------------------------------------------------------------
-# Markdown report
-# --------------------------------------------------------------------------
-
 def render_report(rules: list[ParsedRule], coverage: dict[str, CoverageEntry]) -> str:
     """Generate the human-readable coverage summary."""
+    active = [r for r in rules if not r.retired]
+    retired = [r for r in rules if r.retired]
+
     by_status: dict[str, int] = defaultdict(int)
     by_tactic: dict[str, int] = defaultdict(int)
-    for r in rules:
+    for r in active:
         by_status[r.status] += 1
         for t in r.tactics:
             by_tactic[t] += 1
@@ -223,13 +224,14 @@ def render_report(rules: list[ParsedRule], coverage: dict[str, CoverageEntry]) -
     lines.append("")
     lines.append("## At a glance")
     lines.append("")
-    lines.append(f"- **Total rules:** {len(rules)}")
+    lines.append(f"- **Active rules:** {len(active)}")
+    lines.append(f"- **Retired rules:** {len(retired)}")
     lines.append(f"- **Techniques covered:** {len(coverage)}")
     avg = sum(e.score for e in coverage.values()) / len(coverage) if coverage else 0
     lines.append(f"- **Average maturity score:** {avg:.0f}/100")
     lines.append("")
 
-    lines.append("## Rules by status")
+    lines.append("## Active rules by status")
     lines.append("")
     lines.append("| Status | Count |")
     lines.append("|---|---:|")
@@ -237,7 +239,7 @@ def render_report(rules: list[ParsedRule], coverage: dict[str, CoverageEntry]) -
         lines.append(f"| {status} | {by_status.get(status, 0)} |")
     lines.append("")
 
-    lines.append("## Rules by ATT&CK tactic")
+    lines.append("## Active rules by ATT&CK tactic")
     lines.append("")
     lines.append("| Tactic | Rules |")
     lines.append("|---|---:|")
@@ -257,6 +259,24 @@ def render_report(rules: list[ParsedRule], coverage: dict[str, CoverageEntry]) -
             f"| {entry.score} | {entry.rule_count} |"
         )
     lines.append("")
+
+    if retired:
+        lines.append("## Retired rules (audit log)")
+        lines.append("")
+        lines.append(
+            "Rules below were retired for the reasons documented. They remain "
+            "in the repo under `detections/retired/` so historical incident "
+            "investigations can refer to them. They are NOT deployed."
+        )
+        lines.append("")
+        lines.append("| Title | Retired | Reason |")
+        lines.append("|---|---|---|")
+        for r in sorted(retired, key=lambda r: r.retired_at, reverse=True):
+            reason = r.retirement_reason.replace("|", "\\|") or "—"
+            retired_at = r.retired_at or "—"
+            lines.append(f"| {r.title} | {retired_at} | {reason} |")
+        lines.append("")
+
     lines.append("## How to view the coverage heatmap")
     lines.append("")
     lines.append(
@@ -267,12 +287,7 @@ def render_report(rules: list[ParsedRule], coverage: dict[str, CoverageEntry]) -
     return "\n".join(lines) + "\n"
 
 
-# --------------------------------------------------------------------------
-# Shields.io endpoint badge
-# --------------------------------------------------------------------------
-
 def render_badge(coverage: dict[str, CoverageEntry]) -> dict:
-    """Generate a shields.io endpoint-format badge JSON."""
     n = len(coverage)
     if n == 0:
         color = "lightgrey"
@@ -290,15 +305,11 @@ def render_badge(coverage: dict[str, CoverageEntry]) -> dict:
     }
 
 
-# --------------------------------------------------------------------------
-# Main
-# --------------------------------------------------------------------------
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, default=Path("detections"))
     parser.add_argument("--output", type=Path, default=Path("docs/coverage"))
-    parser.add_argument("--name", default="DaC Coverage", help="Layer name shown in Navigator")
+    parser.add_argument("--name", default="DaC Coverage")
     args = parser.parse_args()
 
     if not args.source.exists():
@@ -307,9 +318,10 @@ def main() -> int:
 
     args.output.mkdir(parents=True, exist_ok=True)
 
-    rule_files = find_rule_files(args.source)
+    # Include retired rules so REPORT.md can render the audit section
+    rule_files = find_rule_files(args.source, include_retired=True)
     rules = [r for r in (parse_rule(p) for p in rule_files) if r is not None]
-    coverage = score_rules(rules)
+    coverage = score_rules(rules)  # automatically excludes retired
 
     layer = render_navigator_layer(coverage, name=args.name)
     layer_path = args.output / "coverage_layer.json"
@@ -323,7 +335,9 @@ def main() -> int:
     badge_path = args.output / "badge.json"
     badge_path.write_text(json.dumps(badge, indent=2) + "\n", encoding="utf-8")
 
-    print(f"Parsed {len(rules)} rule(s)")
+    active = sum(1 for r in rules if not r.retired)
+    retired = sum(1 for r in rules if r.retired)
+    print(f"Parsed {active} active rule(s), {retired} retired")
     print(f"Covering {len(coverage)} unique technique(s)")
     print(f"Wrote {layer_path}")
     print(f"Wrote {report_path}")

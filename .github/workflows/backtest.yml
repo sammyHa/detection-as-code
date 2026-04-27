@@ -1,0 +1,130 @@
+name: Backtest Detections
+
+# On every PR that touches detection content, run each affected rule's
+# converted SPL against the lab's benign telemetry corpus. Fail the PR
+# if any rule fires above its FP budget on benign data.
+#
+# Runs on the self-hosted runner because we need direct access to the
+# lab Splunk indexes.
+
+on:
+  pull_request:
+    paths:
+      - 'detections/**'
+      - 'tools/backtest.py'
+      - '.github/workflows/backtest.yml'
+  workflow_dispatch:
+    inputs:
+      earliest:
+        description: "Backtest window earliest (Splunk time format, e.g. '-30d')"
+        default: '-30d'
+        type: string
+      latest:
+        description: "Backtest window latest"
+        default: '-1d'
+        type: string
+
+concurrency:
+  group: backtest-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  convert:
+    name: Convert Sigma → SPL
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Convert all rules (excluding retired)
+        run: python tools/sigma_convert.py --source detections/ --output build/ --target splunk
+
+      - name: Upload SPL build
+        uses: actions/upload-artifact@v4
+        with:
+          name: splunk-build-backtest
+          path: build/splunk/
+          retention-days: 7
+
+  backtest:
+    name: Run backtest against benign corpus
+    runs-on: self-hosted
+    needs: convert
+    environment: lab-splunk
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install runtime deps
+        run: pip install pyyaml requests
+
+      - name: Download SPL build
+        uses: actions/download-artifact@v4
+        with:
+          name: splunk-build-backtest
+          path: build/splunk/
+
+      - name: Run backtest
+        env:
+          SPLUNK_HOST: ${{ secrets.SPLUNK_HOST }}
+          SPLUNK_PORT: ${{ secrets.SPLUNK_PORT }}
+          SPLUNK_TOKEN: ${{ secrets.SPLUNK_TOKEN }}
+          BACKTEST_EARLIEST: ${{ inputs.earliest || '-30d' }}
+          BACKTEST_LATEST: ${{ inputs.latest || '-1d' }}
+        run: |
+          python tools/backtest.py --all \
+            --build-dir build/splunk \
+            --report backtest-report.json
+
+      - name: Format PR comment
+        if: always()
+        run: |
+          python -c "
+          import json, sys
+          r = json.load(open('backtest-report.json'))
+          passed, failed = r['passed'], r['failed']
+          icon = '✅' if failed == 0 else '❌'
+          lines = [
+              f'## {icon} Phase 5 — Backtest against benign corpus',
+              '',
+              f'**{passed}/{passed + failed} rules passed.** Window: \`{r[\"earliest\"]}\` → \`{r[\"latest\"]}\`',
+              '',
+              '| Rule | Benign hits | Budget | Result |',
+              '|---|---:|---:|:-:|',
+          ]
+          for x in r['results']:
+              i = '✅' if x['passed'] else ('⚠️' if x.get('error') else '❌')
+              note = f\" — {x['error']}\" if x.get('error') else ''
+              title = x['rule_title'][:60]
+              lines.append(f'| \`{title}\` | {x[\"benign_hits\"]} | {x[\"fp_budget\"]} | {i}{note} |')
+          open('backtest-comment.md', 'w').write('\\n'.join(lines) + '\\n')
+          print('\\n'.join(lines))
+          "
+          cat backtest-comment.md >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backtest-report
+          path: |
+            backtest-report.json
+            backtest-comment.md
+          retention-days: 30
+
+      - name: Post results to PR
+        if: always() && github.event_name == 'pull_request'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          path: backtest-comment.md
+          header: phase5-backtest

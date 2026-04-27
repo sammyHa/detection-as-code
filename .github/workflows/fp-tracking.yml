@@ -1,0 +1,73 @@
+name: FP Rate Tracking
+
+# Nightly job: query Splunk's audit log for alert fires from deployed
+# DaC saved searches, append to fp_history.jsonl, regenerate the trend
+# SVG, and commit both back to main. Append-only — git history IS the
+# audit trail.
+
+on:
+  schedule:
+    # Daily at 09:15 UTC — 15 minutes after the Phase 4 coverage refresh
+    # so the two don't fight over commits.
+    - cron: '15 9 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fp-tracking
+  cancel-in-progress: false  # don't cancel — we'd lose a nightly reading
+
+jobs:
+  collect:
+    name: Collect FP fire counts
+    runs-on: self-hosted
+    environment: lab-splunk
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install runtime deps
+        run: pip install requests
+
+      - name: Collect last 24h of fires
+        env:
+          SPLUNK_HOST: ${{ secrets.SPLUNK_HOST }}
+          SPLUNK_PORT: ${{ secrets.SPLUNK_PORT }}
+          SPLUNK_TOKEN: ${{ secrets.SPLUNK_TOKEN }}
+        run: |
+          python tools/fp_collector.py \
+            --history docs/coverage/fp_history.jsonl \
+            --earliest -24h \
+            --latest now
+
+      - name: Regenerate trend SVG
+        run: |
+          python tools/fp_trend.py \
+            --history docs/coverage/fp_history.jsonl \
+            --output docs/coverage/fp_trend.svg
+
+      - name: Commit appended history + regenerated trend
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/coverage/fp_history.jsonl docs/coverage/fp_trend.svg
+          if git diff --cached --quiet; then
+            echo "no changes — nothing to commit"
+          else
+            today=$(date -u +%Y-%m-%d)
+            git commit -m "chore(fp): nightly fire-count reading for $today [skip ci]"
+            git push
+          fi
+
+      - name: Summary
+        run: |
+          echo "## 🔍 Nightly FP rate reading" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Appended to \`docs/coverage/fp_history.jsonl\` and regenerated \`fp_trend.svg\`." >> $GITHUB_STEP_SUMMARY
